@@ -2,7 +2,7 @@
 
 This project trains a language model to lip‑read by conditioning on dense 3D facial keypoints extracted from video. Dense landmarks are produced with MediaPipe Face Mesh, normalized/frontalized, then encoded into a compact set of conditioning tokens that are injected into a frozen Causal LM via zero‑init gated cross‑attention adapters.
 
-The pipeline is dataset‑agnostic (any talking‑head video with aligned transcripts works). The author used FFMTIMIT, but any similar corpus can be preprocessed into the required manifest format.
+The pipeline is dataset‑agnostic (any talking‑head video with aligned transcripts works). I used FFMTIMIT, but any similar corpus can be preprocessed into the required manifest format.
 
 ### Highlights
 - **Dataset‑agnostic, MediaPipe‑based alignment and normalization** of ~478 3D face landmarks per frame
@@ -252,5 +252,6 @@ model.eval(); cond_provider.eval()
 ## Acknowledgments
 - MediaPipe Face Mesh (Google), OpenCV, PyTorch, HuggingFace Transformers
 - Default model: `HuggingFaceTB/SmolLM2-135M`
+
 
 
