@@ -13,11 +13,11 @@ The pipeline is dataset‑agnostic (any talking‑head video with aligned transc
 ---
 
 ## Repository structure (key files)
-- `train.py`: End‑to‑end trainer, adapter injection wrapper, checkpoints, evaluation, TensorBoard logging
-- `FaceKeypointEmbedding.py`: Dense face keypoint encoder → `[B, S, d_model]` conditioner
-- `kp_dataloader.py`: JSONL manifest loader and collate for paired (keypoints, text)
-- `dense_face_keypoints.py`: MediaPipe landmark extraction, frontalization via head pose, and normalization utilities
-- `head_pose_estimation.py`: OpenCV PnP head‑pose solver used during frontalization
+- `scripts/train.py`: End‑to‑end trainer, adapter injection wrapper, checkpoints, evaluation, TensorBoard logging
+- `src/lipreading/models/face_keypoint_encoder.py`: Dense face keypoint encoder → `[B, S, d_model]` conditioner
+- `src/lipreading/data/keypoint_dataset.py`: JSONL manifest loader and collate for paired (keypoints, text)
+- `src/lipreading/data/dense_face_keypoints.py`: MediaPipe landmark extraction, frontalization via head pose, and normalization utilities
+- `src/lipreading/data/head_pose_estimation.py`: OpenCV PnP head‑pose solver used during frontalization
 
 ---
 
@@ -49,9 +49,9 @@ The `.npy` must be a float32 array of shape `[T, 478, 3]` where:
 - 3 are the coordinates in the project’s convention: X right, Y up, Z towards camera
 
 ### Landmark extraction and normalization
-Implemented in `dense_face_keypoints.py` via `Face3DKeypointExtractor`:
+Implemented in `src/lipreading/data/dense_face_keypoints.py` via `Face3DKeypointExtractor`:
 - Uses MediaPipe Face Mesh with `refine_landmarks=True` to obtain ~478 landmarks per frame
-- Optional **frontalization**: estimates head pose (yaw/pitch/roll) using `head_pose_estimation.solve_head_pose` (OpenCV `solvePnP` on six stable facial points), then rotates landmarks to a canonical frontal pose while preserving translation about the nose tip
+- Optional **frontalization**: estimates head pose (yaw/pitch/roll) using `lipreading.data.head_pose_estimation.solve_head_pose` (OpenCV `solvePnP` on six stable facial points), then rotates landmarks to a canonical frontal pose while preserving translation about the nose tip
 - **Normalization** options (`normalize` arg):
   - `unit_sphere` (default): center at centroid and scale so max distance to centroid is 1
   - `bbox_unit`: center at centroid, scale by largest bbox side
@@ -61,7 +61,7 @@ Minimal example to turn a single video into a keypoint tensor for one utterance 
 
 ```python
 import cv2, numpy as np
-from dense_face_keypoints import Face3DKeypointExtractor
+from lipreading.data.dense_face_keypoints import Face3DKeypointExtractor
 
 def extract_video_segment_kp(video_path, start_sec, end_sec, normalize="unit_sphere"):
     cap = cv2.VideoCapture(video_path)
@@ -113,7 +113,7 @@ Guidelines:
 ---
 
 ## Data loading and collate
-Implemented in `kp_dataloader.py`:
+Implemented in `src/lipreading/data/keypoint_dataset.py`:
 - `KeypointTextDataset`: reads a list of manifest records; on `__getitem__` loads `kp_path` (`[T, 478, 3]`) and returns `{"text", "face_kp"}`
 - `collate_keypoint_batch`:
   - Tokenizes text with a HuggingFace tokenizer (no special tokens by default), pads/truncates to `--seq_len`, and optionally inserts an EOS if space remains
@@ -126,7 +126,7 @@ Manifest split helpers: `split_records(records, val_ratio)` creates train/val sp
 ---
 
 ## Face keypoint encoder (conditioning model)
-Implemented in `FaceKeypointEmbedding.py` as `FaceKeypointConditionProvider` and `FaceKeypointEncoder`.
+Implemented in `src/lipreading/models/face_keypoint_encoder.py` as `FaceKeypointConditionProvider` and `FaceKeypointEncoder`.
 
 Input: `[B, T, 478, 3]` → Output: `[B, S, d_model]` where `S = --cond_len` and `d_model` matches the base LM hidden size.
 
@@ -140,13 +140,13 @@ Numerical/shape notes:
 - Keypoint normalization per frame (centroid shift and scale stabilization) is applied inside the encoder
 - Temporal key padding mask is propagated through the temporal encoder and resampler
 
-Hyperparameters exposed via `train.py` flags:
+Hyperparameters exposed via `scripts/train.py` flags:
 - `--cond_len`, `--kp_embed_dim`, `--kp_spatial_layers`, `--kp_temporal_layers`, `--kp_heads`, `--kp_dropout`, `--kp_ff_mult`, `--default_kp_frames`
 
 ---
 
 ## Cross‑attention adapters on a frozen LM
-Defined in `train.py`:
+Defined in `scripts/train.py`:
 
 - `ConditionedCausalLM` wraps a HuggingFace `AutoModelForCausalLM`, freezes all base weights, and replaces a subset of transformer blocks with `_BlockWithAdapter`.
 - Each adapter is a **GatedCrossAttention** module:
@@ -174,7 +174,7 @@ loss = out.loss
 
 Basic run (paired keypoints + text):
 ```bash
-python train.py \
+python scripts/train.py \
   --model_id HuggingFaceTB/SmolLM2-135M \
   --manifest /data/manifest.jsonl \
   --output_dir ./runs/smollm2_xattn \
@@ -193,7 +193,7 @@ Notes:
 
 Resume training:
 ```bash
-python train.py --manifest /data/manifest.jsonl --output_dir ./runs/smollm2_xattn --resume ./runs/smollm2_xattn/last_epoch.pth
+python scripts/train.py --manifest /data/manifest.jsonl --output_dir ./runs/smollm2_xattn --resume ./runs/smollm2_xattn/last_epoch.pth
 ```
 …or use `--auto_resume` to pick up `last_epoch.pth` automatically.
 
@@ -213,8 +213,8 @@ To use a trained checkpoint for generation, reconstruct the wrapper and load sta
 ```python
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from train import ConditionedCausalLM
-from FaceKeypointEmbedding import FaceKeypointConditionProvider
+from scripts.train import ConditionedCausalLM
+from lipreading.models.face_keypoint_encoder import FaceKeypointConditionProvider
 
 ckpt_dir = "./runs/smollm2_xattn/best"
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -237,7 +237,7 @@ model.eval(); cond_provider.eval()
 ---
 
 ## Head pose estimation details
-`head_pose_estimation.py` computes yaw/pitch/roll using OpenCV’s `solvePnP` with six stable MediaPipe indices (nose tip, chin, eye corners, mouth corners). A canonical 3D face template is used to form correspondences, and the resulting rotation matrix is converted to Euler angles. During frontalization, the rotation is inverted and applied to relative landmark coordinates (anchored at the nose tip), then mapped back to the project’s coordinate system.
+`src/lipreading/data/head_pose_estimation.py` computes yaw/pitch/roll using OpenCV’s `solvePnP` with six stable MediaPipe indices (nose tip, chin, eye corners, mouth corners). A canonical 3D face template is used to form correspondences, and the resulting rotation matrix is converted to Euler angles. During frontalization, the rotation is inverted and applied to relative landmark coordinates (anchored at the nose tip), then mapped back to the project’s coordinate system.
 
 ---
 

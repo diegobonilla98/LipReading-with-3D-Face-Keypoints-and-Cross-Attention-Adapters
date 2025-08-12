@@ -1,22 +1,38 @@
 import argparse
-import os
-import math
+import gc
 import glob
-import time
+import math
+import os
 import random
-from pathlib import Path
-from functools import partial
-import torch
 import sys
+import time
+from functools import partial
+from pathlib import Path
+
+import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from kp_dataloader import KeypointTextDataset, collate_keypoint_batch, load_manifest, split_records
-from transformers import AutoTokenizer, AutoModelForCausalLM, get_cosine_schedule_with_warmup
-from FaceKeypointEmbedding import FaceKeypointConditionProvider
+from torch.utils.data import DataLoader, Dataset
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    get_cosine_schedule_with_warmup,
+)
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import psutil
-import gc
+
+# Make src package importable when running from project root
+sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
+
+from lipreading.data.keypoint_dataset import (
+    KeypointTextDataset,
+    collate_keypoint_batch,
+    load_manifest,
+    split_records,
+)
+from lipreading.models.face_keypoint_encoder import (
+    FaceKeypointConditionProvider,
+)
 
 # -----------------------------
 # NEW: xAttn adapter components

@@ -49,7 +49,11 @@ def load_manifest(path: str) -> List[Dict[str, Any]]:
     return records
 
 
-def split_records(records: List[Dict[str, Any]], val_ratio: float, seed: int = 1337) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def split_records(
+    records: List[Dict[str, Any]],
+    val_ratio: float,
+    seed: int = 1337,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     rng = np.random.default_rng(seed)
     idx = np.arange(len(records))
     rng.shuffle(idx)

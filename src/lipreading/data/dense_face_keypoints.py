@@ -9,7 +9,7 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (needed for 3D)
 # Image IO
 import cv2
 
-from head_pose_estimation import solve_head_pose
+from .head_pose_estimation import solve_head_pose
 
 # Remove logging and debugging classes and functions
 
